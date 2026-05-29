@@ -1,57 +1,69 @@
 from datetime import datetime, timezone
 
+import boto3
+from app.config import AWS_REGION, DYNAMODB_TABLE_NAME
 
-incidents = []
+
+dynamodb = boto3.resource(
+    "dynamodb",
+    region_name=AWS_REGION
+)
+
+table = dynamodb.Table(DYNAMODB_TABLE_NAME)
 
 
 def save_incident(incident):
-    incidents.append(incident)
+    table.put_item(Item=incident)
     return incident
 
 
 def get_all_incidents():
-    return incidents
+    response = table.scan()
+    return response.get("Items", [])
 
 
 def get_incident_by_id(incident_id):
-    for incident in incidents:
-        if incident["incident_id"] == incident_id:
-            return incident
+    response = table.get_item(
+        Key={
+            "incident_id": incident_id
+        }
+    )
 
-    return None
+    return response.get("Item")
 
 
 def filter_incidents(severity=None, service=None, priority=None, ip=None):
-    filtered = incidents
+    incidents = get_all_incidents()
 
     if severity:
-        filtered = [
-            incident for incident in filtered
+        incidents = [
+            incident for incident in incidents
             if incident["severity"] == severity
         ]
 
     if service:
-        filtered = [
-            incident for incident in filtered
+        incidents = [
+            incident for incident in incidents
             if incident["service"] == service
         ]
 
     if priority:
-        filtered = [
-            incident for incident in filtered
+        incidents = [
+            incident for incident in incidents
             if incident["priority"] == priority
         ]
 
     if ip:
-        filtered = [
-            incident for incident in filtered
+        incidents = [
+            incident for incident in incidents
             if incident["source_ip"] == ip
         ]
 
-    return filtered
+    return incidents
 
 
 def get_incident_stats():
+    incidents = get_all_incidents()
     total = len(incidents)
 
     severity_counts = {
@@ -66,7 +78,7 @@ def get_incident_stats():
     for incident in incidents:
         severity = incident["severity"]
         service = incident["service"]
-        risk_score = incident["risk_score"]
+        risk_score = int(incident["risk_score"])
 
         severity_counts[severity] += 1
         service_counts[service] = service_counts.get(service, 0) + 1
@@ -94,34 +106,36 @@ def is_valid_status_transition(current_status, new_status):
 
 
 def update_incident_status(incident_id, new_status):
-    for incident in incidents:
-        if incident["incident_id"] == incident_id:
-            current_status = incident["status"]
+    incident = get_incident_by_id(incident_id)
 
-            if not is_valid_status_transition(current_status, new_status):
-                return {
-                    "error": "Invalid status transition",
-                    "current_status": current_status,
-                    "requested_status": new_status
-                }
+    if incident is None:
+        return None
 
-            incident["status"] = new_status
+    current_status = incident["status"]
 
-            incident["history"].append(
-                {
-                    "action": new_status,
-                    "timestamp": datetime.now(
-                        timezone.utc
-                    ).isoformat()
-                }
-            )
+    if not is_valid_status_transition(current_status, new_status):
+        return {
+            "error": "Invalid status transition",
+            "current_status": current_status,
+            "requested_status": new_status
+        }
 
-            return incident
+    incident["status"] = new_status
+    incident["history"].append(
+        {
+            "action": new_status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    )
 
-    return None
+    table.put_item(Item=incident)
+
+    return incident
 
 
 def get_incidents_by_status(status):
+    incidents = get_all_incidents()
+
     return [
         incident
         for incident in incidents
