@@ -20,7 +20,7 @@ def verify_api_key(x_api_key: str):
 
 app = FastAPI(
     title="CloudGuard Lite",
-    description="Serverless Incident Response & Threat Detection API",
+    description="Cloud-Native Threat Detection & Incident Management API",
     version="1.0.0"
 )
 
